@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"time"
 
+	"unicode"
+
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -26,7 +28,9 @@ func main() {
 
 	type User struct {
 		Id        uint   `json:"id"`
-		Name      string `json:"name"`
+		Username  string `json:"username"`
+		Fullname  string `json:"fullname"`
+		Birthday  string `json:"birthday"`
 		Email     string `json:"email" gorm:"unique"`
 		Passsword []byte `json:"-"`
 	}
@@ -52,10 +56,70 @@ func main() {
 			return err
 		}
 
+		// if len(data["password"]) < 6 || len(data["password"]) > 32 {
+		// 	c.Status(fiber.StatusBadRequest)
+		// 	return c.JSON(fiber.Map{
+		// 		"message": "password length must between 6-32 character",
+		// 	})
+		// }
+
+		var (
+			upp, low, num, sym bool
+			total              uint8
+			msg                string
+		)
+
+		for _, char := range data["password"] {
+			switch {
+			case unicode.IsUpper(char):
+				upp = true
+				total++
+			case unicode.IsLower(char):
+				low = true
+				total++
+			case unicode.IsNumber(char):
+				num = true
+				total++
+			case unicode.IsPunct(char) || unicode.IsSymbol(char):
+				sym = true
+				total++
+			default:
+				c.Status(fiber.StatusBadRequest)
+				return c.JSON(fiber.Map{
+					"message": "password contain invalid character",
+				})
+			}
+		}
+
+		if !upp {
+			msg = "password must contain at least one uppercase"
+		}
+		if !low {
+			msg = "password must contain at least one lowercase"
+		}
+		if !num {
+			msg = "password must contain at least one number"
+		}
+		if !sym {
+			msg = "password must contain at least one special character"
+		}
+		if total < 6 || total > 32 {
+			msg = "password length must between 6-32 character"
+		}
+
+		if !upp || !low || !num || !sym || total < 6 || total > 32 {
+			c.Status(fiber.StatusBadRequest)
+			return c.JSON(fiber.Map{
+				"message": msg,
+			})
+		}
+
 		password, _ := bcrypt.GenerateFromPassword([]byte(data["password"]), 14)
 
 		user := User{
-			Name:      data["name"],
+			Fullname:  data["fullname"],
+			Username:  data["username"],
+			Birthday:  data["birthday"],
 			Email:     data["email"],
 			Passsword: password,
 		}
@@ -74,7 +138,11 @@ func main() {
 
 		var user User
 
-		DB.Where("email = ?", data["email"]).First(&user)
+		if len(data["email"]) > 0 {
+			DB.Where("email = ?", data["email"]).First(&user)
+		} else if len(data["username"]) > 0 {
+			DB.Where("username = ?", data["username"]).First(&user)
+		}
 
 		if user.Id == 0 {
 			c.Status(fiber.StatusNotFound)
